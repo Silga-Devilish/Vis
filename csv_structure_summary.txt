@@ -1,0 +1,157 @@
+CSV 数据结构摘要：
+{
+  "columns": [
+    {
+      "name": "Region",
+      "type": "category",
+      "unique_values": [
+        "Belgorod Oblast",
+        "Bryansk Oblast",
+        "Vladimir Oblast",
+        "Voronezh Oblast",
+        "Ivanovo Oblast"
+      ]
+    },
+    {
+      "name": "Year",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Wine",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Beer",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Vodka",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Sparkling wine",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Brandy",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Сider",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Liqueurs",
+      "type": "numeric",
+      "unique_values": null
+    },
+    {
+      "name": "Total alcohol consumption (in liters of pure alcohol per capita)",
+      "type": "numeric",
+      "unique_values": null
+    }
+  ],
+  "rows": 595,
+  "grouped": {
+    "Altai Krai": 7,
+    "Altai Republic": 7,
+    "Amur Oblast": 7,
+    "Arkhangelsk Oblast": 7,
+    "Astrakhan Oblast": 7,
+    "Belgorod Oblast": 7,
+    "Bryansk Oblast": 7,
+    "Chechen Republic": 7,
+    "Chelyabinsk Oblast": 7,
+    "Chukotka Autonomous Okrug": 7,
+    "Chuvash Republic": 7,
+    "Irkutsk Oblast": 7,
+    "Ivanovo Oblast": 7,
+    "Jewish Autonomous Oblast": 7,
+    "Kabardino-Balkar Republic": 7,
+    "Kaliningrad Oblast": 7,
+    "Kaluga Oblast": 7,
+    "Kamchatka Krai": 7,
+    "Karachay-Cherkess Republic": 7,
+    "Kemerovo Oblast": 7,
+    "Khabarovsk Krai": 7,
+    "Khanty–Mansi Autonomous Okrug – Yugra": 7,
+    "Kirov Oblast": 7,
+    "Komi Republic": 7,
+    "Kostroma Oblast": 7,
+    "Krasnodar Krai": 7,
+    "Krasnoyarsk Krai": 7,
+    "Kurgan Oblast": 7,
+    "Kursk Oblast": 7,
+    "Leningrad Oblast": 7,
+    "Lipetsk Oblast": 7,
+    "Magadan Oblast": 7,
+    "Mari El Republic": 7,
+    "Moscow": 7,
+    "Moscow Oblast": 7,
+    "Murmansk Oblast": 7,
+    "Nenets Autonomous Okrug": 7,
+    "Nizhny Novgorod Oblast": 7,
+    "Novgorod Oblast": 7,
+    "Novosibirsk Oblast": 7,
+    "Omsk Oblast": 7,
+    "Orenburg Oblast": 7,
+    "Oryol Oblast": 7,
+    "Penza Oblast": 7,
+    "Perm Krai": 7,
+    "Primorsky Krai": 7,
+    "Pskov Oblast": 7,
+    "Republic of Adygea": 7,
+    "Republic of Bashkortostan": 7,
+    "Republic of Buryatia": 7,
+    "Republic of Crimea": 7,
+    "Republic of Dagestan": 7,
+    "Republic of Ingushetia": 7,
+    "Republic of Kalmykia": 7,
+    "Republic of Karelia": 7,
+    "Republic of Khakassia": 7,
+    "Republic of Mordovia": 7,
+    "Republic of North Ossetia-Alania": 7,
+    "Republic of Tatarstan": 7,
+    "Rostov Oblast": 7,
+    "Ryazan Oblast": 7,
+    "Saint Petersburg": 7,
+    "Sakha (Yakutia) Republic": 7,
+    "Sakhalin Oblast": 7,
+    "Samara Oblast": 7,
+    "Saratov Oblast": 7,
+    "Sevastopol": 7,
+    "Smolensk Oblast": 7,
+    "Stavropol Krai": 7,
+    "Sverdlovsk Oblast": 7,
+    "Tambov Oblast": 7,
+    "Tomsk Oblast": 7,
+    "Tula Oblast": 7,
+    "Tuva Republic": 7,
+    "Tver Oblast": 7,
+    "Tyumen Oblast": 7,
+    "Udmurt Republic": 7,
+    "Ulyanovsk Oblast": 7,
+    "Vladimir Oblast": 7,
+    "Volgograd Oblast": 7,
+    "Vologda Oblast": 7,
+    "Voronezh Oblast": 7,
+    "Yamalo-Nenets Autonomous Okrug": 7,
+    "Yaroslavl Oblast": 7,
+    "Zabaykalsky Krai": 7
+  }
+}
+
+原始数据预览：
+            Region  Year  Wine   Beer  Vodka  Sparkling wine  Brandy  Сider  Liqueurs  Total alcohol consumption (in liters of pure alcohol per capita)
+0  Belgorod Oblast  2017  1.79  60.00   3.52            0.78    0.31   1.52      0.14                                                               5.6
+1   Bryansk Oblast  2017  3.02  34.21   4.29            0.83    0.46   0.86      0.69                                                               4.8
+2  Vladimir Oblast  2017  3.70  58.93   6.73            0.91    0.78   1.60      0.54                                                               7.5
+3  Voronezh Oblast  2017  2.68  33.17   3.69            1.04    0.60   0.91      0.32                                                               4.4
+4   Ivanovo Oblast  2017  3.42  41.01   5.69            0.83    0.60   1.36      0.61                                                               5.9

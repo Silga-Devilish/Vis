@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI代码生成可视化</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+
+    <style>
+        #visualization-container {
+            width: 600px;
+            height: 400px;
+            margin: 20px auto;
+        }
+        #code-output {
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI可视化生成器</h1>
+    <div>
+        <input type="text" id="user-input" placeholder="请输入你的可视化需求，例如：'创建一个展示销售数据的饼图'">
+        <button id="generate-btn">生成可视化</button>
+    </div>
+
+    <div id="code-output"></div>
+
+    <div id="visualization-container">
+        <canvas id="visualization-canvas"></canvas>
+    </div>
+
+    <script>
+        document.getElementById('generate-btn').addEventListener('click', async function() {
+            const userInput = document.getElementById('user-input').value;
+            if (!userInput) return;
+
+            try {
+                // 调用Deepseek API
+                const response = await fetchDeepseekAPI(userInput);
+
+                // 显示生成的代码
+                document.getElementById('code-output').textContent = response.code;
+
+                // 执行生成的代码
+                executeGeneratedCode(response.code);
+            } catch (error) {
+                console.error('Error:', error);
+                alert('生成可视化时出错: ' + error.message);
+            }
+        });
+
+        async function fetchDeepseekAPI(prompt) {
+            // 这里替换为你的实际API调用
+            // 以下是模拟实现
+            const apiKey = 'sk-24ef6c01fb054870b7e571c02a7a528e';
+            const apiUrl = 'https://api.deepseek.com/v1/chat/completions';
+
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: "deepseek-coder",
+                    messages: [
+                        {
+                            role: "user",
+                            content: `根据以下需求生成JavaScript代码(使用Chart.js)并只返回代码部分，不要任何解释和注释:\n${prompt}`
+                        }
+                    ],
+                    temperature: 0.7
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API请求失败: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return {
+                code: data.choices[0].message.content
+            };
+        }
+
+        function executeGeneratedCode(code) {
+            try {
+                // 清除之前的图表
+                const canvas = document.getElementById('visualization-canvas');
+                const ctx = canvas.getContext('2d');
+
+                // 销毁现有图表实例
+                if (window.myChart) {
+                    window.myChart.destroy();
+                }
+
+                // 使用Function构造函数执行代码
+                // 注意：这有安全风险，生产环境需要更安全的方案
+                const execute = new Function(`
+                    const canvas = document.getElementById('visualization-canvas');
+                    const ctx = canvas.getContext('2d');
+                    ${code}
+                `);
+
+                execute();
+            } catch (error) {
+                console.error('执行代码出错:', error);
+                alert('执行生成的代码时出错: ' + error.message);
+            }
+        }
+    </script>
+</body>
+</html>

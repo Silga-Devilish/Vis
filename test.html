@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI图表生成器</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #visualization-container {
+            width: 100%;
+            height: 400px;
+            margin: 20px 0;
+            border: 1px solid #eee;
+        }
+        #code-output {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow: auto;
+        }
+        #user-input {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+        #generate-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        #generate-btn:disabled {
+            background: #cccccc;
+        }
+    </style>
+</head>
+<body>
+    <h1>AI图表生成器</h1>
+    <p>输入你的图表需求（例如："创建一个展示2023年每月销售额的柱状图"）</p>
+
+    <input type="text" id="user-input" placeholder="请输入图表描述...">
+    <button id="generate-btn">生成图表</button>
+
+    <div id="code-output">生成的代码将显示在这里...</div>
+
+    <div id="visualization-container">
+        <canvas id="chart-canvas"></canvas>
+    </div>
+
+    <script>
+        // 确保Chart.js已加载
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!window.Chart) {
+                alert("Chart.js库加载失败，请检查网络连接");
+                return;
+            }
+        });
+
+        document.getElementById('generate-btn').addEventListener('click', async function() {
+            const btn = this;
+            const userInput = document.getElementById('user-input').value.trim();
+            if (!userInput) {
+                alert("请输入图表描述");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = "生成中...";
+
+            try {
+                // 1. 调用Deepseek API获取代码
+                const response = await callDeepseekAPI(userInput);
+                const generatedCode = extractChartCode(response);
+
+                // 2. 显示生成的代码
+                document.getElementById('code-output').textContent = generatedCode;
+
+                // 3. 执行代码绘制图表
+                executeChartCode(generatedCode);
+
+            } catch (error) {
+                console.error("生成图表失败:", error);
+                alert("生成图表失败: " + error.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "生成图表";
+            }
+        });
+
+        async function callDeepseekAPI(prompt) {
+            // 注意：实际项目中API密钥应该通过后端获取，这里仅为演示
+            const apiKey = "sk-24ef6c01fb054870b7e571c02a7a528e"; // 替换为你的实际API密钥
+            const apiUrl = "https://api.deepseek.com/v1/chat/completions";
+
+            const response = await fetch(apiUrl, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: "deepseek-coder",
+                    messages: [{
+                        role: "user",
+                        content: `生成Chart.js图表代码，要求：
+                        1. 使用canvas id="chart-canvas"
+                        2. 只返回纯粹的JavaScript代码
+                        3. 不要任何解释或注释
+                        需求：${prompt}`
+                    }],
+                    temperature: 0.3
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`API请求失败: ${response.status}`);
+            }
+
+            return await response.json();
+        }
+
+        function extractChartCode(apiResponse) {
+            // 从API响应中提取纯代码（去除可能的Markdown标记）
+            let code = apiResponse.choices[0]?.message?.content || "";
+
+            // 去除代码块标记（如果有）
+            code = code.replace(/```(javascript)?|```/g, '').trim();
+
+            // 确保代码以new Chart开头
+            if (!code.includes("new Chart")) {
+                throw new Error("API返回的代码格式不正确");
+            }
+
+            return code;
+        }
+        function executeChartCode(code) {
+            const canvas = document.getElementById('chart-canvas');
+            if (!canvas) throw new Error("找不到canvas元素");
+
+            // 销毁之前的图表
+            if (window.activeChart) {
+                window.activeChart.destroy();
+            }
+
+            try {
+                // 1. 从代码中提取配置对象部分
+                const configMatch = code.match(/new Chart\(.*?,\s*(\{[\s\S]*?\})\s*\)/);
+                if (!configMatch) {
+                    throw new Error("无法从代码中提取图表配置");
+                }
+
+                // 2. 直接使用配置对象创建图表
+                const config = eval(`(${configMatch[1]})`); // 安全风险提示：生产环境应使用JSON.parse
+                window.activeChart = new Chart(
+                    canvas.getContext('2d'),
+                    config
+                );
+
+            } catch (error) {
+                console.error("图表创建失败:", error);
+                throw new Error("图表创建失败: " + error.message);
+            }
+        }
+
+
+    </script>
+</body>
+</html>
