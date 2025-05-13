@@ -8,16 +8,33 @@
     <style>
         body {
             font-family: Arial, sans-serif;
-            max-width: 800px;
+            max-width: 1200px;
             margin: 0 auto;
             padding: 20px;
         }
+
+        .main-container {
+            display: flex;
+            gap: 20px;
+        }
+
+        .left-column {
+            flex: 1;
+        }
+
+        .right-column {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
         #visualization-container {
             width: 100%;
             height: 400px;
-            margin: 20px 0;
+            margin-top: 20px;
             border: 1px solid #eee;
         }
+
         #code-output {
             background: #f8f9fa;
             padding: 15px;
@@ -28,11 +45,13 @@
             max-height: 300px;
             overflow: auto;
         }
+
         #user-input {
             width: 100%;
             padding: 10px;
             margin-bottom: 10px;
         }
+
         #generate-btn, #upload-btn {
             background: #4CAF50;
             color: white;
@@ -42,15 +61,18 @@
             border-radius: 4px;
             margin-right: 10px;
         }
+
         #generate-btn:disabled, #upload-btn:disabled {
             background: #cccccc;
         }
+
         #data-analysis {
             background: #f0f8ff;
             padding: 15px;
             border-radius: 5px;
-            margin: 20px 0;
+            margin-bottom: 20px;
         }
+
         #data-preview {
             max-height: 200px;
             overflow: auto;
@@ -59,38 +81,62 @@
             margin-bottom: 10px;
             background: white;
         }
+
         .hidden {
             display: none;
+        }
+
+        .file-upload-section {
+            margin-bottom: 20px;
+        }
+
+        .chart-controls-container {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 10px;
         }
     </style>
 </head>
 <body>
     <h1>AI图表生成器</h1>
 
-    <div>
+    <div class="file-upload-section">
         <input type="file" id="file-input" accept=".txt,.csv" class="hidden">
         <button id="upload-btn">导入数据文件</button>
         <span id="file-name">未选择文件</span>
     </div>
 
-    <div id="data-analysis" class="hidden">
-        <h3>数据分析结果</h3>
-        <div id="data-preview"></div>
-        <div id="analysis-result"></div>
+    <div class="main-container">
+        <!-- 左栏：数据分析 -->
+        <div class="left-column">
+            <div id="data-analysis" class="hidden">
+                <h3>数据分析结果</h3>
+                <div id="data-preview"></div>
+                <div id="analysis-result"></div>
+            </div>
+
+            <div id="code-output">生成的代码将显示在这里...</div>
+        </div>
+
+        <!-- 右栏：图表控制和可视化 -->
+        <div class="right-column">
+            <div class="chart-controls-container">
+                <div id="chart-controls" class="hidden">
+                    <h3>图表生成</h3>
+                    <p>输入你的图表需求：</p>
+                    <input type="text" id="user-input" placeholder="例如：创建一个柱状图展示各月份销售额">
+                    <button id="generate-btn">生成图表</button>
+                </div>
+            </div>
+
+            <div id="visualization-container">
+                <canvas id="chart-canvas"></canvas>
+            </div>
+        </div>
     </div>
 
-    <div id="chart-controls" class="hidden">
-        <p>输入你的图表需求（例如："创建一个柱状图展示各月份销售额"）</p>
-        <input type="text" id="user-input" placeholder="请输入图表描述...">
-        <button id="generate-btn">生成图表</button>
-    </div>
-
-    <div id="code-output">生成的代码将显示在这里...</div>
-
-    <div id="visualization-container">
-        <canvas id="chart-canvas"></canvas>
-    </div>
-
+    <!-- 保持原有JavaScript代码不变 -->
     <script>
         // 全局变量存储上传的数据
         let uploadedData = null;
@@ -301,7 +347,7 @@
 
             try {
                 // 方法1：改进的正则表达式提取（适用于多行复杂配置）
-                const configMatch = code.match(/new Chart\(.*?,\s*(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})\s*\)/s);
+                const configMatch = code.match(/new Chart$.*?,\s*(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})\s*$/s);
                 if (configMatch) {
                     const config = eval(`(${configMatch[1]})`);
                     window.activeChart = new Chart(
@@ -329,8 +375,6 @@
                 throw new Error("图表创建失败: " + error.message);
             }
         }
-
-
     </script>
 </body>
 </html>
