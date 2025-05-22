@@ -294,32 +294,45 @@
             const canvas = document.getElementById('chart-canvas');
             if (!canvas) throw new Error("找不到canvas元素");
 
-            // 销毁之前的图表
-            if (window.activeChart) {
-                window.activeChart.destroy();
-            }
-
             try {
-                // 方法1：改进的正则表达式提取（适用于多行复杂配置）
-                const configMatch = code.match(/new Chart\(.*?,\s*(\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\})\s*\)/s);
+                // 确保彻底销毁之前的图表
+                if (window.activeChart) {
+                    window.activeChart.destroy();
+                    window.activeChart = null;
+                }
+
+                // 方法1：更可靠的正则表达式提取配置对象
+                const configMatch = code.match(/new\s+Chart\([^,]+,\s*({[\s\S]*?})\s*\)/);
                 if (configMatch) {
-                    const config = eval(`(${configMatch[1]})`);
-                    window.activeChart = new Chart(
-                        canvas.getContext('2d'),
-                        config
-                    );
+                    const configStr = configMatch[1];
+                    // 安全解析配置对象
+                    const config = new Function(`return ${configStr}`)();
+
+                    // 清除canvas并创建新图表
+                    const ctx = canvas.getContext('2d');
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    window.activeChart = new Chart(ctx, config);
                     return;
                 }
 
-                // 方法2：直接执行整个代码（需要确保安全性）
+                // 方法2：直接执行代码（更安全的实现）
                 const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 // 创建安全执行环境
                 const execute = new Function(`
                     "use strict";
-                    const ctx = arguments[0];
-                    ${code.replace(/const\s+ctx\s*=.*?;/, '')}
-                    return window.activeChart;
+                    try {
+                        const ctx = arguments[0];
+                        ${code
+                            .replace(/const\s+ctx\s*=.+?;/, '')  // 移除ctx声明
+                            .replace(/const\s+chart\s*=\s*new Chart/, 'window.activeChart = new Chart')  // 修改chart变量赋值
+                        }
+                        return window.activeChart;
+                    } catch(e) {
+                        console.error("执行错误:", e);
+                        throw e;
+                    }
                 `);
 
                 window.activeChart = execute(ctx);
@@ -329,6 +342,7 @@
                 throw new Error("图表创建失败: " + error.message);
             }
         }
+
 
 
     </script>
