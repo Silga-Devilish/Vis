@@ -1,0 +1,68 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV 文件分析与问题回答</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        #answer {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: #f9f9f9;
+            max-width: 600px;
+        }
+        textarea {
+            width: 100%;
+            max-width: 600px;
+            height: 100px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>上传 CSV 数据文件并输入问题</h1>
+    <form id="uploadForm" enctype="multipart/form-data">
+        <label for="file">选择 CSV 数据文件:</label>
+        <input type="file" id="file" name="file" accept=".csv" required><br><br>
+        <label for="question">输入问题:</label><br>
+        <textarea id="question" name="question" placeholder="请输入您的问题，例如：俄罗斯 2020 年酒精消费量是多少？" required></textarea><br>
+        <button type="submit">提交</button>
+    </form>
+
+    <div id="answer"></div>
+
+    <script>
+        document.getElementById('uploadForm').onsubmit = async function(event) {
+            event.preventDefault();
+
+            const formData = new FormData();
+            formData.append("file", document.getElementById('file').files[0]);
+            formData.append("question", document.getElementById('question').value);
+
+            try {
+                const response = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    document.getElementById('answer').innerHTML = `<strong>答案：</strong><pre>${result.answer}</pre>`;
+                } else {
+                    document.getElementById('answer').innerHTML = `<strong>错误：</strong><pre>${result.error}</pre>`;
+                }
+            } catch (error) {
+                document.getElementById('answer').innerHTML = `<strong>错误：</strong><pre>请求失败：${error.message}</pre>`;
+            }
+        };
+    </script>
+</body>
+</html>
+

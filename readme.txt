@@ -1,0 +1,8 @@
+基于flask框架
+backups中是生成的摘要和数据源文件
+templates中是html文件
+upload是上传的问题
+app.py是集成的python功能文件，主要修改对象
+data.csv是俄罗斯酒精数据集
+test.py是对生成的代码的一次尝试运行
+vgsales是游戏数据集
