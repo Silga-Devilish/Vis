@@ -1,15 +1,22 @@
 import re
 import subprocess
 import logging
+import traceback
+
 import pandas as pd
 import json
 import os
 from flask import Flask, request, render_template, jsonify
 from datetime import datetime
 import chardet
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
 import difflib
 
 app = Flask(__name__)
+app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False  # 禁用美化输出
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 允许50MB大文件
 
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -114,13 +121,10 @@ def check_ollama_status():
         return False
 
 
-def run_ollama(data_content, question):
-    logger.info("开始调用大模型 deepseek-r1:8b")
-    if not check_ollama_status():
-        logger.error("ollama 服务不可用，跳过模型调用")
-        raise Exception("ollama 服务不可用")
+def run_deepseek(data_content, question):
+    logger.info("开始调用DeepSeek API")
 
-    # 获取 file_name 用于代码生成
+    # 获取file_name用于代码生成
     import json
     summary = json.loads(data_content)
     file_name = summary.get('file_name', 'data.csv')
@@ -128,51 +132,59 @@ def run_ollama(data_content, question):
     prompt = f"""基于以下数据摘要：
 {data_content}
 
-解析以下问题，生成 Python 代码（使用 pandas 和 matplotlib）以读取原始 CSV 文件（假设文件名为 {file_name}）并完成绘图任务。代码应：
-- 模糊匹配地区（如 "莫斯科" 识别为 "Moscow" 或其他相近名称，使用 difflib，默认为所有地区若未明确指定）。
-- 动态确定时间跨度（根据问题中的年份范围，如 "2017-2023" 或 "近年" 取所有可用年份或最近 3 年）。
-- 检测所有酒精种类列（基于 alcohol_types），根据问题选择绘制总和、均值或原始数据（默认为总和柱状图或折线图）。
-- 保存图表为 PNG 文件。
+请生成Python代码（使用pandas和matplotlib）读取CSV文件（假设文件名为{file_name}）并完成绘图任务。要求：
+1. 模糊匹配地区（如"莫斯科"识别为"Moscow"或其他相近名称）
+2. 动态确定时间跨度（根据问题中的年份范围）
+3. 检测所有酒精种类列（基于alcohol_types）
+4. 保存图表为PNG文件
 
 问题：{question}
 
-返回格式：
-- 返回 Python 代码字符串，包含完整导入和保存逻辑。
+请只返回Python代码，包含完整导入和保存逻辑，不需要任何解释。
+代码块必须用```python包裹。
 """
-    logger.info(f"发送给大模型的提示词: {prompt}")
 
-    logger.info("通过 API 调用 deepseek-r1:8b")
     try:
         import requests
+        headers = {
+            "Authorization": "Bearer sk-b6b7f0fb779f47449fb2a72642974a9b",  # 替换为实际API密钥
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "deepseek-chat",  # 或其他可用模型
+            "messages": [
+                {"role": "system", "content": "你是一个专业的数据分析师，擅长生成Python可视化代码"},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3  # 降低随机性
+        }
+
         response = requests.post(
-            'http://localhost:11434/api/generate',
-            json={"model": "deepseek-r1:8b", "prompt": prompt, "stream": False},
-            timeout=180
+            'https://api.deepseek.com/v1/chat/completions',  # 确认实际API端点
+            headers=headers,
+            json=payload,
+            timeout=60
         )
         response.raise_for_status()
-        result = response.json().get('response', '')
 
-        if not result:
-            logger.error("大模型返回空输出")
-            raise Exception("大模型返回空输出")
+        result = response.json()['choices'][0]['message']['content']
+        logger.info(f"DeepSeek API返回内容: {result}")
 
-        result = re.sub(r'[\u2580-\u259F]|\x1B\[[0-?]*[ -/]*[@-~]', '', result).strip()
-        logger.info(f"大模型返回的原始输出: {result}")
-
-        if '```' in result:
-            plot_code = result.split('```')[1].strip()
+        # 提取代码块
+        if '```python' in result:
+            plot_code = result.split('```python')[1].split('```')[0].strip()
+        elif '```' in result:
+            plot_code = result.split('```')[1].split('```')[0].strip()
             if plot_code.startswith('python'):
-                plot_code = plot_code[len('python'):].strip()
+                plot_code = plot_code[6:].strip()
         else:
             plot_code = result.strip()
 
         return {'plot_code': plot_code}
-    except requests.exceptions.RequestException as e:
-        logger.error(f"API 调用失败: {str(e)}")
-        raise Exception(f"API 调用失败: {str(e)}")
+
     except Exception as e:
-        logger.error(f"执行大模型命令时出错: {str(e)}")
-        raise
+        logger.error(f"DeepSeek API调用失败: {str(e)}")
+        raise Exception(f"DeepSeek API调用失败: {str(e)}")
 
 
 @app.route('/')
@@ -193,28 +205,134 @@ def upload_file():
         logger.error("上传文件名或问题文本为空")
         return jsonify({"error": "上传文件名或问题文本为空"}), 400
 
-    logger.info(f"上传文件: {file.filename}")
-    logger.info(f"输入问题: {question}")
     try:
         df, json_summary = analyze_csv(file)
-        if df is None or json_summary is None:
-            logger.error("CSV 分析失败")
-            return jsonify({"error": "CSV 分析失败"}), 500
+        response = run_deepseek(json_summary, question)
+        img_buffer = execute_plot_code(response['plot_code'], df)
 
-        logger.info(f"CSV 摘要: {json_summary}")
-        logger.info("CSV 分析成功，准备传给大模型")
+        # 获取base64编码
+        img_buffer = execute_plot_code(response['plot_code'], df)
 
-        file.seek(0)
-        save_backup(file, json_summary)
+        # Base64编码并确保字符串安全
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
 
-        response = run_ollama(json_summary, question)
-        logger.info("从大模型获取响应成功")
-        return jsonify({
-            "plot_code": response['plot_code']
-        })
+        # 调试输出
+        logger.info(f"Base64数据长度: {len(img_base64)}")
+        logger.info(f"前100字符: {img_base64[:100]}")
+        logger.info(f"最后100字符: {img_base64[-100:]}")
+
+        # 构建响应数据（使用json.dumps确保格式正确）
+        response_data = {
+            "image_base64": img_base64,
+            "plot_code": response['plot_code'],
+            "model": "deepseek"
+        }
+
+        # 手动生成JSON字符串（确保特殊字符被转义）
+        import json
+        json_str = json.dumps(response_data, ensure_ascii=False)
+
+        # 验证JSON是否有效
+        try:
+            json.loads(json_str)  # 测试反序列化
+        except json.JSONDecodeError as e:
+            logger.error(f"生成的JSON无效: {str(e)}")
+            raise ValueError("生成的数据包含无效字符")
+
+        # 返回响应（使用Response对象更可靠）
+        from flask import Response
+        return Response(
+            response=json_str,
+            status=200,
+            mimetype='application/json',
+            headers={
+                'Content-Length': str(len(json_str)),
+                'Cache-Control': 'no-store',
+                'X-Content-Type-Options': 'nosniff'
+            }
+        )
+
     except Exception as e:
-        logger.error(f"处理文件上传或大模型调用时出错: {str(e)}")
-        return jsonify({"error": str(e)}), 500
+        logger.error(f"处理失败: {str(e)}\n{traceback.format_exc()}")
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+def sanitize_base64(base64_str):
+    """清理Base64字符串中的潜在问题字符"""
+    import re
+    # 移除所有非Base64标准字符
+    return re.sub(r'[^a-zA-Z0-9+/=]', '', base64_str)
+
+def validate_and_fix_code(plot_code):
+    """验证并修复生成的代码"""
+    try:
+        # 尝试编译代码检查语法
+        compile(plot_code, '<string>', 'exec')
+        return plot_code
+    except SyntaxError as e:
+        logger.warning(f"检测到语法错误: {str(e)}")
+        # 自动修复常见错误
+        if "was never closed" in str(e):
+            fixed_code = plot_code.replace(
+                "df['Region'].unique()",
+                "df['Region'].unique())"
+            )
+            try:
+                compile(fixed_code, '<string>', 'exec')
+                logger.info("已自动修复括号不匹配问题")
+                return fixed_code
+            except SyntaxError:
+                pass
+        # 如果无法自动修复，返回原始代码让错误暴露
+        return plot_code
+
+
+def execute_plot_code(plot_code, df):
+    import matplotlib
+    matplotlib.use('Agg', force=True)
+    import matplotlib.pyplot as plt
+    from io import BytesIO
+    import numpy as np
+
+    plt.close('all')
+
+    try:
+        # 创建独立命名空间
+        local_vars = {
+            'pd': pd,
+            'plt': plt,
+            'df': df,
+            'np': np,
+            '__builtins__': __builtins__
+        }
+
+        # 执行原始代码（不再移除savefig）
+        exec(plot_code, local_vars)
+
+        # 获取当前图形
+        fig = plt.gcf()
+        if not fig.axes:
+            # 紧急恢复：绘制默认图形
+            ax = fig.add_subplot(111)
+            df.iloc[:, 0].value_counts().head(5).plot(kind='bar', ax=ax)
+            ax.set_title('自动生成的备用图表')
+
+        # 保存到缓冲区
+        img_buffer = BytesIO()
+        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=100)
+        img_buffer.seek(0)
+
+        # 调试输出
+        print(f"图形尺寸: {fig.get_size_inches()}")
+        print(f"坐标轴数量: {len(fig.axes)}")
+        return img_buffer
+
+    except Exception as e:
+        plt.close('all')
+        raise RuntimeError(f"绘图失败: {str(e)}") from e
+    finally:
+        plt.close('all')
 
 
 if __name__ == '__main__':
