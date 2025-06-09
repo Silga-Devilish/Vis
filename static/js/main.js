@@ -1,4 +1,4 @@
-// 图片错误处理
+// 修改原有的handleImageError函数
 function handleImageError(imgElement) {
     const wrapper = imgElement.parentElement;
     wrapper.innerHTML = '<div class="error">图表加载失败</div>';
@@ -62,6 +62,53 @@ function hideHistory() {
     showBtn.style.display = 'inline-block';
     hideBtn.style.display = 'none';
 }
+// 图片模态框功能
+const modal = document.getElementById("imageModal");
+const modalImg = document.getElementById("modalImage");
+const captionText = document.getElementById("caption");
+const span = document.getElementsByClassName("close")[0];
+
+// 点击图片打开模态框
+function setupImageZoom() {
+    document.querySelectorAll('.img-wrapper img').forEach(img => {
+        img.onclick = function() {
+            modal.style.display = "block";
+            modalImg.src = this.src;
+            captionText.innerHTML = this.alt;
+
+            // 添加键盘ESC关闭功能
+            document.addEventListener('keydown', function(event) {
+                if (event.key === "Escape") {
+                    modal.style.display = "none";
+                }
+            });
+        }
+    });
+}
+
+// 点击关闭按钮
+span.onclick = function() {
+    modal.style.display = "none";
+}
+
+// 点击模态框背景关闭
+modal.onclick = function(event) {
+    if (event.target === modal) {
+        modal.style.display = "none";
+    }
+}
+
+// 在图片加载后初始化点击事件
+function handleImageLoad(imgElement) {
+    imgElement.style.cursor = 'zoom-in';
+    imgElement.addEventListener('click', function() {
+        modal.style.display = "block";
+        modalImg.src = this.src;
+        captionText.innerHTML = this.alt;
+    });
+}
+
+
 
 // 表单提交处理
 document.getElementById('uploadForm').addEventListener('submit', async function(event) {
@@ -117,36 +164,38 @@ document.getElementById('uploadForm').addEventListener('submit', async function(
 
         // 显示所有生成的图片
         if (result.images && result.images.length > 0) {
-            const chartsContainer = document.createElement('div');
-            chartsContainer.className = 'multi-chart-container';
-            
-            result.images.forEach((img, index) => {
-                const chartCard = document.createElement('div');
-                chartCard.className = 'chart-card';
-                const imgUrl = `${img.url}&t=${Date.now()}`;
-                chartCard.innerHTML = `
-                    <div class="chart-title">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-                            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-                            <line x1="12" y1="22.08" x2="12" y2="12"></line>
-                        </svg>
-                        图表 ${index + 1}: ${img.name.replace('.png', '')}
-                    </div>
-                    <div class="img-wrapper">
-                        <img src="${imgUrl}" 
-                             alt="${img.name}"
-                             loading="lazy"
-                             onerror="handleImageError(this)">
-                    </div>
-                `;
-                chartsContainer.appendChild(chartCard);
-            });
-            
-            answerDiv.appendChild(chartsContainer);
-        } else {
-            answerDiv.innerHTML += '<div class="info">未生成任何图表</div>';
-        }
+        const chartsContainer = document.createElement('div');
+        chartsContainer.className = 'multi-chart-container';
+
+        result.images.forEach((img, index) => {
+            const chartCard = document.createElement('div');
+            chartCard.className = 'chart-card';
+            const imgUrl = `${img.url}&t=${Date.now()}`;
+            chartCard.innerHTML = `
+                <div class="chart-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                        <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                        <line x1="12" y1="22.08" x2="12" y2="12"></line>
+                    </svg>
+                    图表 ${index + 1}: ${img.name.replace('.png', '')}
+                </div>
+                <div class="img-wrapper">
+                    <img src="${imgUrl}"
+                         alt="${img.name}"
+                         loading="lazy"
+                         onload="handleImageLoad(this)"
+                         onerror="handleImageError(this)">
+                </div>
+            `;
+            chartsContainer.appendChild(chartCard);
+        });
+
+        answerDiv.appendChild(chartsContainer);
+
+        // 初始化图片点击事件
+        setTimeout(setupImageZoom, 500);
+    }
 
     } catch (error) {
         answerDiv.innerHTML = `
