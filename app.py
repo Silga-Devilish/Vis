@@ -20,6 +20,9 @@ app = Flask(__name__)
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False  # 禁用美化输出
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 允许50MB大文件
 
+app.config['TEMP_IMG_DIR'] = os.path.join(os.getcwd(), 'temp_images')
+app.config['ARCHIVE_IMG_DIR'] = os.path.join(os.getcwd(), 'archive_images')
+
 # 配置日志
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -208,6 +211,10 @@ def upload_file():
         return jsonify({"error": "上传文件名或问题文本为空"}), 400
 
     try:
+        # 初始化目录
+        init_dirs()
+        clear_temp_images()
+
         # 1. 分析CSV文件
         df, json_summary = analyze_csv(file)
         if df is None:
@@ -218,22 +225,32 @@ def upload_file():
         plot_code = response['plot_code']
         logger.info(f"获取到的绘图代码:\n{plot_code}")
 
-        # 3. 执行绘图代码并获取临时文件路径
-        temp_file_path = execute_plot_code(plot_code, df)
+        # 3. 执行绘图代码
+        generated_images = execute_plot_code(plot_code, df, file.filename)
 
-        # 4. 读取临时文件内容
-        with open(temp_file_path, 'rb') as f:
-            img_data = f.read()
+        # 4. 归档所有图片并准备响应
+        image_urls = []
+        for img_path in generated_images:
+            # 将图片移动到正式临时目录
+            filename = os.path.basename(img_path)
+            dest_path = os.path.join(app.config['TEMP_IMG_DIR'], filename)
+            shutil.move(img_path, dest_path)
 
-        # 5. 构建响应
-        response_data = {
+            # 归档图片
+            archive_path = archive_image(dest_path)
+            logger.info(f"图片已归档: {archive_path}")
+
+            image_urls.append({
+                "name": filename,
+                "url": f"/get_image?path={filename}"
+            })
+
+        # 5. 返回结果
+        return jsonify({
             "plot_code": plot_code,
-            "model": "deepseek",
-            "image_url": f"/get_image?path={os.path.basename(temp_file_path)}"  # 添加获取图片的URL
-        }
-
-        # 6. 返回JSON响应（包含获取图片的URL）
-        return jsonify(response_data)
+            "images": image_urls,
+            "model": "deepseek"
+        })
 
     except Exception as e:
         logger.error(f"处理失败: {str(e)}\n{traceback.format_exc()}")
@@ -273,27 +290,58 @@ def serve_image(filename):
 
     return send_file(file_path)
 
+
 @app.route('/get_image')
 def get_image():
-    """用于提供生成的图片文件"""
+    """提供生成的图片文件"""
     try:
-        # 安全验证路径参数
         file_name = request.args.get('path')
-        if not file_name or not re.match(r'^generated_plot_\w+\.png$', file_name):
-            raise ValueError("无效的文件名")
+        if not file_name or not re.match(r'^[\w-]+\.(png|jpg|jpeg)$', file_name, re.IGNORECASE):
+            return jsonify({"error": "非法文件名"}), 400
 
-        # 在临时目录中查找文件
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, file_name)
-
+        file_path = os.path.join(app.config['TEMP_IMG_DIR'], file_name)
         if not os.path.exists(file_path):
-            raise FileNotFoundError("请求的图片不存在")
+            # 尝试从归档目录查找
+            date_str = datetime.now().strftime('%Y-%m-%d')
+            archive_dir = os.path.join(app.config['ARCHIVE_IMG_DIR'], date_str)
+            archive_path = os.path.join(archive_dir, file_name)
 
-        return send_file(file_path, mimetype='image/png')
+            if os.path.exists(archive_path):
+                file_path = archive_path
+            else:
+                return jsonify({"error": "图片不存在"}), 404
+
+        # 添加缓存控制头
+        response = send_file(file_path)
+        response.headers['Cache-Control'] = 'no-store, max-age=0'
+        return response
 
     except Exception as e:
         logger.error(f"获取图片失败: {str(e)}")
-        return jsonify({"error": str(e)}), 404
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/list_archive')
+def list_archive():
+    """获取归档图片列表"""
+    archive_data = []
+    try:
+        for root, dirs, files in os.walk(app.config['ARCHIVE_IMG_DIR']):
+            if files:
+                date = os.path.basename(root)
+                archive_data.append({
+                    "date": date,
+                    "files": [{
+                        "name": f,
+                        "path": f"/get_image?path={f}&from_archive=true&date={date}",
+                        "size": os.path.getsize(os.path.join(root, f))
+                    } for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+                })
+        return jsonify(sorted(archive_data, key=lambda x: x['date'], reverse=True))
+    except Exception as e:
+        logger.error(f"获取归档列表失败: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
 
 def sanitize_base64(base64_str):
     """清理Base64字符串中的潜在问题字符"""
@@ -325,44 +373,111 @@ def validate_and_fix_code(plot_code):
         return plot_code
 
 
-def execute_plot_code(plot_code, df):
-    """执行绘图代码并返回临时文件路径"""
+def execute_plot_code(plot_code, df, original_filename):
+    """执行绘图代码并返回所有生成的图片路径
+    参数：
+        plot_code: 生成的Python代码
+        df: 要分析的数据框
+        original_filename: 用户上传的原始文件名
+    返回：
+        list: 生成的图片路径列表
+    """
     import matplotlib
     matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
+    plt.close('all')
+
+    # 创建临时工作目录
+    temp_dir = tempfile.mkdtemp(dir=app.config['TEMP_IMG_DIR'])
+    original_dir = os.getcwd()
 
     try:
-        # 执行原始代码（保留其保存到文件的操作）
-        exec_globals = {'pd': pd, 'plt': plt, 'df': df}
+        # 切换到临时目录
+        os.chdir(temp_dir)
+        logger.info(f"将在临时目录执行代码: {temp_dir}")
+
+        # 将数据保存到临时目录供生成的代码使用
+        temp_csv_path = os.path.join(temp_dir, original_filename)
+        df.to_csv(temp_csv_path, index=False)
+
+        # 修改生成的代码，使用正确的文件名
+        plot_code = plot_code.replace("pd.read_csv('vgsales.csv')",
+                                      f"pd.read_csv('{original_filename}')")
+
+        # 准备执行环境
+        exec_globals = {
+            'pd': pd,
+            'plt': plt,
+            '__file__': os.path.join(temp_dir, 'generated_script.py')
+        }
+
+        # 执行生成的代码
         exec(plot_code, exec_globals)
 
-        # 获取代码中保存的路径（或使用默认）
-        output_path = 'platform_trends.png'  # 默认路径
+        # 收集所有生成的PNG文件
+        generated_images = []
+        for f in os.listdir(temp_dir):
+            if f.lower().endswith('.png'):
+                img_path = os.path.join(temp_dir, f)
+                generated_images.append(img_path)
+                logger.info(f"检测到生成的图片: {img_path}")
 
-        # 如果是其他文件名，可以从代码中提取
-        import re
-        match = re.search(r"plt\.savefig\('(.*?)'", plot_code)
-        if match:
-            output_path = match.group(1)
+        if not generated_images:
+            raise FileNotFoundError("代码执行后未生成任何图片文件")
 
-        # 验证文件是否存在
-        if not os.path.exists(output_path):
-            raise FileNotFoundError(f"生成的图片文件不存在: {output_path}")
-
-        # 将文件复制到临时目录（避免被后续操作覆盖）
-        temp_dir = tempfile.mkdtemp()
-        temp_path = os.path.join(temp_dir, 'generated_plot.png')
-        shutil.copy(output_path, temp_path)
-
-        return temp_path
+        return generated_images
 
     except Exception as e:
-        logger.error(f"绘图失败: {str(e)}")
+        logger.error(f"执行绘图代码时出错: {str(e)}")
         raise
     finally:
+        # 恢复原始工作目录
+        os.chdir(original_dir)
         plt.close('all')
+
+
+def init_dirs():
+    """初始化图片目录"""
+    os.makedirs(app.config['TEMP_IMG_DIR'], exist_ok=True)
+    os.makedirs(app.config['ARCHIVE_IMG_DIR'], exist_ok=True)
+
+
+def clear_temp_images():
+    """清空临时图片目录"""
+    for filename in os.listdir(app.config['TEMP_IMG_DIR']):
+        file_path = os.path.join(app.config['TEMP_IMG_DIR'], filename)
+        try:
+            if os.path.isfile(file_path):
+                os.unlink(file_path)
+        except Exception as e:
+            logger.error(f"删除临时文件失败 {file_path}: {e}")
+
+
+def archive_image(src_path):
+    """归档图片到带日期的目录"""
+    try:
+        if not os.path.exists(src_path):
+            raise FileNotFoundError(f"源图片不存在: {src_path}")
+
+        date_str = datetime.now().strftime('%Y-%m-%d')
+        filename = os.path.basename(src_path)
+        archive_dir = os.path.join(app.config['ARCHIVE_IMG_DIR'], date_str)
+
+        # 创建归档目录（按日期）
+        os.makedirs(archive_dir, exist_ok=True)
+
+        # 直接使用原文件名（不再添加时间戳）
+        archive_path = os.path.join(archive_dir, filename)
+
+        # 复制文件到归档目录
+        shutil.copy2(src_path, archive_path)
+        logger.info(f"图片归档成功: {src_path} -> {archive_path}")
+
+        return archive_path
+
+    except Exception as e:
+        logger.error(f"图片归档失败: {str(e)}")
+        raise
 
 
 if __name__ == '__main__':
     app.run(debug=True)
-
