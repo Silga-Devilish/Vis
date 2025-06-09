@@ -1,12 +1,14 @@
 import re
+import shutil
 import subprocess
 import logging
+import tempfile
 import traceback
 
 import pandas as pd
 import json
 import os
-from flask import Flask, request, render_template, jsonify
+from flask import Flask, request, render_template, jsonify, send_file
 from datetime import datetime
 import chardet
 import matplotlib.pyplot as plt
@@ -206,51 +208,32 @@ def upload_file():
         return jsonify({"error": "上传文件名或问题文本为空"}), 400
 
     try:
+        # 1. 分析CSV文件
         df, json_summary = analyze_csv(file)
+        if df is None:
+            raise ValueError("CSV文件分析失败")
+
+        # 2. 调用DeepSeek API获取绘图代码
         response = run_deepseek(json_summary, question)
-        img_buffer = execute_plot_code(response['plot_code'], df)
+        plot_code = response['plot_code']
+        logger.info(f"获取到的绘图代码:\n{plot_code}")
 
-        # 获取base64编码
-        img_buffer = execute_plot_code(response['plot_code'], df)
+        # 3. 执行绘图代码并获取临时文件路径
+        temp_file_path = execute_plot_code(plot_code, df)
 
-        # Base64编码并确保字符串安全
-        img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+        # 4. 读取临时文件内容
+        with open(temp_file_path, 'rb') as f:
+            img_data = f.read()
 
-        # 调试输出
-        logger.info(f"Base64数据长度: {len(img_base64)}")
-        logger.info(f"前100字符: {img_base64[:100]}")
-        logger.info(f"最后100字符: {img_base64[-100:]}")
-
-        # 构建响应数据（使用json.dumps确保格式正确）
+        # 5. 构建响应
         response_data = {
-            "image_base64": img_base64,
-            "plot_code": response['plot_code'],
-            "model": "deepseek"
+            "plot_code": plot_code,
+            "model": "deepseek",
+            "image_url": f"/get_image?path={os.path.basename(temp_file_path)}"  # 添加获取图片的URL
         }
 
-        # 手动生成JSON字符串（确保特殊字符被转义）
-        import json
-        json_str = json.dumps(response_data, ensure_ascii=False)
-
-        # 验证JSON是否有效
-        try:
-            json.loads(json_str)  # 测试反序列化
-        except json.JSONDecodeError as e:
-            logger.error(f"生成的JSON无效: {str(e)}")
-            raise ValueError("生成的数据包含无效字符")
-
-        # 返回响应（使用Response对象更可靠）
-        from flask import Response
-        return Response(
-            response=json_str,
-            status=200,
-            mimetype='application/json',
-            headers={
-                'Content-Length': str(len(json_str)),
-                'Cache-Control': 'no-store',
-                'X-Content-Type-Options': 'nosniff'
-            }
-        )
+        # 6. 返回JSON响应（包含获取图片的URL）
+        return jsonify(response_data)
 
     except Exception as e:
         logger.error(f"处理失败: {str(e)}\n{traceback.format_exc()}")
@@ -258,6 +241,60 @@ def upload_file():
             "error": str(e),
             "traceback": traceback.format_exc()
         }), 500
+
+
+@app.route('/list_images')
+def list_images():
+    """返回当前目录下的图片文件列表"""
+    image_extensions = ('.png', '.jpg', '.jpeg', '.gif')
+    image_files = []
+
+    for filename in os.listdir(os.getcwd()):
+        if filename.lower().endswith(image_extensions):
+            file_path = os.path.join(os.getcwd(), filename)
+            image_files.append({
+                'name': filename,
+                'size': os.path.getsize(file_path),
+                'lastModified': int(os.path.getmtime(file_path))
+            })
+
+    return jsonify(image_files)
+
+
+@app.route('/<filename>')
+def serve_image(filename):
+    """提供图片文件"""
+    if not filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
+        return jsonify({"error": "Invalid file type"}), 400
+
+    file_path = os.path.join(os.getcwd(), filename)
+    if not os.path.exists(file_path):
+        return jsonify({"error": "File not found"}), 404
+
+    return send_file(file_path)
+
+@app.route('/get_image')
+def get_image():
+    """用于提供生成的图片文件"""
+    try:
+        # 安全验证路径参数
+        file_name = request.args.get('path')
+        if not file_name or not re.match(r'^generated_plot_\w+\.png$', file_name):
+            raise ValueError("无效的文件名")
+
+        # 在临时目录中查找文件
+        temp_dir = tempfile.gettempdir()
+        file_path = os.path.join(temp_dir, file_name)
+
+        if not os.path.exists(file_path):
+            raise FileNotFoundError("请求的图片不存在")
+
+        return send_file(file_path, mimetype='image/png')
+
+    except Exception as e:
+        logger.error(f"获取图片失败: {str(e)}")
+        return jsonify({"error": str(e)}), 404
+
 def sanitize_base64(base64_str):
     """清理Base64字符串中的潜在问题字符"""
     import re
@@ -289,48 +326,39 @@ def validate_and_fix_code(plot_code):
 
 
 def execute_plot_code(plot_code, df):
+    """执行绘图代码并返回临时文件路径"""
     import matplotlib
-    matplotlib.use('Agg', force=True)
+    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    from io import BytesIO
-    import numpy as np
-
-    plt.close('all')
 
     try:
-        # 创建独立命名空间
-        local_vars = {
-            'pd': pd,
-            'plt': plt,
-            'df': df,
-            'np': np,
-            '__builtins__': __builtins__
-        }
+        # 执行原始代码（保留其保存到文件的操作）
+        exec_globals = {'pd': pd, 'plt': plt, 'df': df}
+        exec(plot_code, exec_globals)
 
-        # 执行原始代码（不再移除savefig）
-        exec(plot_code, local_vars)
+        # 获取代码中保存的路径（或使用默认）
+        output_path = 'platform_trends.png'  # 默认路径
 
-        # 获取当前图形
-        fig = plt.gcf()
-        if not fig.axes:
-            # 紧急恢复：绘制默认图形
-            ax = fig.add_subplot(111)
-            df.iloc[:, 0].value_counts().head(5).plot(kind='bar', ax=ax)
-            ax.set_title('自动生成的备用图表')
+        # 如果是其他文件名，可以从代码中提取
+        import re
+        match = re.search(r"plt\.savefig\('(.*?)'", plot_code)
+        if match:
+            output_path = match.group(1)
 
-        # 保存到缓冲区
-        img_buffer = BytesIO()
-        fig.savefig(img_buffer, format='png', bbox_inches='tight', dpi=100)
-        img_buffer.seek(0)
+        # 验证文件是否存在
+        if not os.path.exists(output_path):
+            raise FileNotFoundError(f"生成的图片文件不存在: {output_path}")
 
-        # 调试输出
-        print(f"图形尺寸: {fig.get_size_inches()}")
-        print(f"坐标轴数量: {len(fig.axes)}")
-        return img_buffer
+        # 将文件复制到临时目录（避免被后续操作覆盖）
+        temp_dir = tempfile.mkdtemp()
+        temp_path = os.path.join(temp_dir, 'generated_plot.png')
+        shutil.copy(output_path, temp_path)
+
+        return temp_path
 
     except Exception as e:
-        plt.close('all')
-        raise RuntimeError(f"绘图失败: {str(e)}") from e
+        logger.error(f"绘图失败: {str(e)}")
+        raise
     finally:
         plt.close('all')
 

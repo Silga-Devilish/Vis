@@ -175,6 +175,19 @@
             max-height: 200px;
             overflow-y: auto;
         }
+        /* 在原有的CSS样式中添加 */
+        .img-wrapper img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+
+        /* 可选：为图片容器添加最大宽度限制 */
+        .chart-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
     </style>
 </head>
 <body>
@@ -194,7 +207,6 @@
         </form>
 
         <div id="answer"></div>
-        <!-- 新增调试面板 -->
         <div id="debugPanel" class="debug-panel" style="display: none;">
             <h3>调试信息</h3>
             <pre id="debugInfo"></pre>
@@ -204,54 +216,25 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.10/clipboard.min.js"></script>
 
-     <script>
+    <script>
         document.getElementById('uploadForm').addEventListener('submit', async function(event) {
             event.preventDefault();
 
             const answerDiv = document.getElementById('answer');
-            const debugPanel = document.getElementById('debugPanel');
-            const debugInfo = document.getElementById('debugInfo');
-
-            // 显示加载状态
             answerDiv.innerHTML = '<div class="loading">🔄 正在分析数据并生成可视化结果，请稍候...</div>';
-            debugPanel.style.display = 'none';
 
             try {
                 const formData = new FormData(this);
-                const startTime = performance.now();
-
-                // 发送请求并获取原始响应文本
                 const response = await fetch('/upload', {
                     method: 'POST',
                     body: formData
                 });
 
-                const responseTime = performance.now() - startTime;
-                const responseText = await response.text();
-
-                // 调试信息
-                let debugContent = `请求耗时: ${responseTime.toFixed(2)}ms\n`;
-                debugContent += `响应状态: ${response.status}\n`;
-                debugContent += `响应头: ${JSON.stringify(Object.fromEntries(response.headers.entries()), null, 2)}\n`;
-                debugContent += `响应数据预览: ${responseText.substring(0, 200)}...\n`;
-
-                // 尝试解析JSON
-                let result;
-                try {
-                    result = JSON.parse(responseText);
-                    debugContent += "JSON解析成功\n";
-                } catch (jsonError) {
-                    debugContent += `JSON解析失败: ${jsonError.message}\n`;
-                    throw new Error(`服务器返回的数据格式无效: ${jsonError.message}`);
+                if (!response.ok) {
+                    throw new Error(await response.text());
                 }
 
-                // 检查响应是否包含错误
-                if (!response.ok || result.error) {
-                    debugContent += `服务器返回错误: ${result.error || '未知错误'}\n`;
-                    throw new Error(result.error || `请求失败: ${response.status}`);
-                }
-
-                // 清空并准备显示区域
+                const result = await response.json();
                 answerDiv.innerHTML = '';
 
                 // 显示成功消息
@@ -260,56 +243,7 @@
                 successMsg.textContent = '✅ 分析完成！以下是结果:';
                 answerDiv.appendChild(successMsg);
 
-                // 1. 显示图表
-                if (result.image_base64) {
-                    debugContent += `Base64数据长度: ${result.image_base64.length}字符\n`;
-
-                    const chartContainer = document.createElement('div');
-                    chartContainer.id = 'chart-container';
-                    chartContainer.innerHTML = `
-                        <h3>📊 可视化图表</h3>
-                        <div class="img-wrapper">
-                            <img id="chart-image" alt="生成的可视化图表">
-                        </div>
-                    `;
-                    answerDiv.appendChild(chartContainer);
-
-                    // 创建图片对象并处理加载
-                    const img = document.getElementById('chart-image');
-                    const cleanBase64 = result.image_base64
-                        .replace(/[\n\r]/g, '')  // 移除换行符
-                        .trim();
-
-                    // 验证Base64格式
-                    if (!/^[a-zA-Z0-9+/=]+$/.test(cleanBase64)) {
-                        debugContent += "Base64包含非法字符\n";
-                        throw new Error("Base64数据格式不正确");
-                    }
-
-                    img.onload = function() {
-                        debugContent += "图片加载成功\n";
-                        updateDebugInfo();
-                    };
-
-                    img.onerror = function() {
-                        debugContent += "图片加载失败\n";
-                        updateDebugInfo();
-
-                        const errorDiv = document.createElement('div');
-                        errorDiv.className = 'error';
-                        errorDiv.innerHTML = `
-                            <p>图表加载失败，但数据已生成</p>
-                            <p>可能原因: Base64数据损坏或过大</p>
-                            <button onclick="showDebugInfo()">显示调试信息</button>
-                        `;
-                        chartContainer.appendChild(errorDiv);
-                    };
-
-                    // 设置图片源
-                    img.src = `data:image/png;base64,${cleanBase64}`;
-                }
-
-                // 2. 显示代码
+                // 1. 显示代码
                 if (result.plot_code) {
                     const codeSection = document.createElement('div');
                     codeSection.className = 'code-section';
@@ -329,39 +263,61 @@
                     new ClipboardJS('.copy-btn');
                 }
 
-                // 更新调试信息
-                debugInfo.textContent = debugContent;
+                // 2. 自动扫描并显示所有图片
+                await displayGeneratedImages();
 
             } catch (error) {
-                console.error('处理失败:', error);
-
-                let errorMessage = error.message;
-                if (error instanceof SyntaxError) {
-                    errorMessage = "服务器返回的数据格式不正确";
-                }
-
                 answerDiv.innerHTML = `
                     <div class="error">
                         <h3>❌ 处理失败</h3>
-                        <p>${errorMessage}</p>
-                        <button onclick="showDebugInfo()" style="margin-top:10px;">显示调试信息</button>
-                        <button onclick="location.reload()" style="margin-top:10px; margin-left:10px;">重新尝试</button>
+                        <p>${error.message}</p>
+                        <button onclick="location.reload()" style="margin-top:10px;">重新尝试</button>
                     </div>
                 `;
-
-                // 更新调试信息
-                debugInfo.textContent += `\n捕获错误: ${error.stack || error.message}`;
-                updateDebugInfo();
-            }
-
-            function updateDebugInfo() {
-                debugInfo.textContent += `\n最后更新时间: ${new Date().toLocaleTimeString()}`;
-            }
-
-            function showDebugInfo() {
-                debugPanel.style.display = 'block';
+                console.error('处理失败:', error);
             }
         });
+
+        // 自动扫描并显示当前目录下的图片
+        async function displayGeneratedImages() {
+            const answerDiv = document.getElementById('answer');
+            const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif'];
+            const imageFiles = await getImageFiles();
+
+            if (imageFiles.length === 0) {
+                answerDiv.innerHTML += '<div class="error">未找到生成的图片文件</div>';
+                return;
+            }
+
+            // 按修改时间排序，最新的最先显示
+            imageFiles.sort((a, b) => b.lastModified - a.lastModified);
+
+            // 显示所有图片
+            imageFiles.forEach((file, index) => {
+                const chartContainer = document.createElement('div');
+                chartContainer.className = 'chart-container';
+                chartContainer.innerHTML = `
+                    <h3>📊 生成图表 ${index + 1} (${file.name})</h3>
+                    <div class="img-wrapper">
+                        <img src="${file.name}?t=${Date.now()}"
+                             onerror="this.onerror=null;this.parentElement.innerHTML+='<div class=error>图表加载失败</div>'">
+                    </div>
+                `;
+                answerDiv.appendChild(chartContainer);
+            });
+        }
+
+        // 获取当前目录下的图片文件列表
+        async function getImageFiles() {
+            try {
+                const response = await fetch('/list_images');
+                if (!response.ok) throw new Error('获取图片列表失败');
+                return await response.json();
+            } catch (error) {
+                console.error('获取图片列表失败:', error);
+                return [];
+            }
+        }
     </script>
 </body>
 </html>
